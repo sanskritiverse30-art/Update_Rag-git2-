@@ -59,7 +59,7 @@ rag-knowledge-assistant/
 ├── rag_engine.py # RAG pipeline (retrieval + generation)
 ├── feedback_store.py # Stores logs + stats + CSV export
 ├── config.py # Central configuration (models, paths, params)
-│
+
 ├── data/ # Your documents (.txt files)
 ├── chroma_db/ # Vector database storage
 └── report.csv # Generated usage report
