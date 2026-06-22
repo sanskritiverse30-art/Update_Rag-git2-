@@ -1,0 +1,19 @@
+
+## 3 Put this text in the data files
+
+### `data/employee_handbook.txt`
+
+```text
+Employee Handbook
+
+Work Hours:
+Standard office hours are Monday through Friday, 9:00 AM to 5:00 PM. Employees must notify their supervisor if they expect to arrive late or be absent.
+
+Paid Time Off:
+Full-time employees receive 15 paid vacation days per year. Vacation requests should be submitted at least two weeks in advance and require manager approval.
+
+Sick Leave:
+Employees receive 8 sick days per year. Unused sick leave does not roll over unless required by local law.
+
+Code of Conduct:
+Employees are expected to maintain professionalism, respect coworkers, and comply with all workplace policies.

@@ -1,0 +1,13 @@
+Security Policy
+
+Passwords:
+Employees must use strong passwords and may not share passwords with anyone.
+
+Phishing:
+If an employee suspects a phishing email, they must not click links or download attachments. They should report the message immediately to the IT department.
+
+Devices:
+Company devices must be locked when unattended. Software updates must be installed promptly.
+
+Data Protection:
+Confidential files must only be stored in approved company systems.
