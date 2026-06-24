@@ -1,51 +1,39 @@
+import streamlit as st
 from rag_engine import RAGAssistant
-from feedback_store import FeedbackStore
 
+st.set_page_config(page_title="Eddie AI", layout="wide")
 
-def main():
-    assistant = RAGAssistant()
-    store = FeedbackStore()
+assistant = RAGAssistant()
+assistant.build_index()
 
-    print("\n AI Assistant Pro Mode")
-    print("Type 'exit' | 'stats' | 'export'\n")
+# chat history
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
-    print("Indexing documents...")
-    assistant.build_index()
-    print("Index ready!\n")
+st.title("Eddie AI Assistant")
+st.caption("Answers ONLY from your documents")
 
-    while True:
-        query = input("Ask a question: ").strip()
+# display chat
+for msg in st.session_state.chat:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-        if query.lower() in {"exit", "quit"}:
-            break
+# input box
+user_input = st.chat_input("Ask something...")
 
-        if query.lower() == "stats":
-            print(store.get_stats())
-            continue
+if user_input:
 
-        if query.lower() == "export":
-            print(store.export_csv())
-            continue
+    st.session_state.chat.append({"role": "user", "content": user_input})
 
-        try:
-            print("\nThinking...\n")
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-            answer, sources = assistant.generate_answer(query)
+    answer, sources = assistant.generate_answer(user_input)
 
-            print("\nAnswer:\n", answer)
+    with st.chat_message("assistant"):
+        st.markdown(answer)
 
-            print("\nSources:")
-            for s in sources:
-                print("-", s)
+        if sources:
+            st.caption("Sources: " + ", ".join(sources))
 
-            fb = input("\nWas this helpful? (y/n): ")
-            store.log(query, answer, sources, fb)
-
-            print("\n" + "-" * 40 + "\n")
-
-        except Exception as e:
-            print("Error:", e)
-
-
-if __name__ == "__main__":
-    main()
+    st.session_state.chat.append({"role": "assistant", "content": answer})

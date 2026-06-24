@@ -1,177 +1,191 @@
-from typing import List, Dict
-import requests
-
+from sentence_transformers import SentenceTransformer
 import chromadb
-from sentence_transformers import SentenceTransformer, CrossEncoder
+import os
+import re
 
-from config import *
+# Optional LLM (Ollama)
+try:
+    from langchain_community.llms import Ollama
+    OLLAMA_AVAILABLE = True
+except:
+    OLLAMA_AVAILABLE = False
 
 
 class RAGAssistant:
+
     def __init__(self):
-        # -----------------------
-        # MODELS
-        # -----------------------
-        self.embedder = SentenceTransformer(EMBEDDING_MODEL)
-        self.reranker = CrossEncoder(RERANK_MODEL)
 
         # -----------------------
-        # VECTOR DB
+        # EMBEDDINGS
         # -----------------------
-        self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        self.collection = self.client.get_or_create_collection(name="docs")
+        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-        self._index_built = False
+        # -----------------------
+        # CHROMA DB
+        # -----------------------
+        self.client = chromadb.PersistentClient(path="chroma_db")
+        self.collection = self.client.get_or_create_collection("docs")
+
+        # -----------------------
+        # LLM (SAFE INIT)
+        # -----------------------
+        self.llm = None
+        if OLLAMA_AVAILABLE:
+            try:
+                self.llm = Ollama(model="llama3.2:latest")
+                print("✔ LLM CONNECTED")
+            except:
+                self.llm = None
 
     # -----------------------
-    # OLLAMA CALL
+    # BUILD INDEX (CLEAN + SAFE)
     # -----------------------
-    def _call_llm(self, prompt: str):
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False
-            }
-        )
-        return response.json()["response"]
+    def build_index(self, docs_path="data/"):
 
-    # -----------------------
-    # CHUNKING
-    # -----------------------
-    def _chunk_text(self, text: str) -> List[str]:
-        sentences = text.split(". ")
-        chunks = []
-        chunk = ""
+        if self.collection.count() > 0:
+            print("✔ Index already exists")
+            return
 
-        for s in sentences:
-            s = s.strip()
-            if not s:
+        if not os.path.exists(docs_path):
+            print("❌ data/ folder missing")
+            return
+
+        doc_id = 0
+
+        for file in os.listdir(docs_path):
+            if not file.endswith(".txt"):
                 continue
 
-            if len(chunk) + len(s) < CHUNK_SIZE:
-                chunk += s + ". "
-            else:
-                chunks.append(chunk.strip())
-                overlap = " ".join(chunk.split()[-CHUNK_OVERLAP:])
-                chunk = overlap + " " + s + ". "
+            path = os.path.join(docs_path, file)
 
-        if chunk:
-            chunks.append(chunk.strip())
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+
+            chunks = self.chunk_text(text)
+
+            for chunk in chunks:
+                chunk = chunk.strip()
+
+                if len(chunk) < 30:
+                    continue
+
+                emb = self.embedder.encode(chunk).tolist()
+
+                self.collection.add(
+                    ids=[f"{file}_{doc_id}"],
+                    embeddings=[emb],
+                    documents=[chunk],
+                    metadatas=[{"source": file}]
+                )
+
+                doc_id += 1
+
+        print(f"✔ INDEX BUILT | chunks = {doc_id}")
+
+    # -----------------------
+    # CHUNKING (IMPORTANT FIX)
+    # -----------------------
+    def chunk_text(self, text, chunk_size=500, overlap=100):
+
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+
+        chunks = []
+        current = ""
+
+        for s in sentences:
+            if len(current) + len(s) < chunk_size:
+                current += " " + s
+            else:
+                chunks.append(current.strip())
+                current = s
+
+        if current:
+            chunks.append(current.strip())
 
         return chunks
 
     # -----------------------
-    # INDEX (FIXED FOR STREAMLIT)
+    # RETRIEVE (REAL FIX)
     # -----------------------
-    def build_index(self):
-        # Prevent repeated indexing in Streamlit reruns
-        if self._index_built:
-            return
+    def retrieve_context(self, query, k=5):
 
-        # If DB already has data → skip rebuilding
-        if self.collection.count() > 0:
-            self._index_built = True
-            print("Using existing ChromaDB index")
-            return
+        query = query.lower().strip()
 
-        files = list(DATA_DIR.glob("*.txt"))
-
-        if len(files) == 0:
-            print("No documents found in data/ folder")
-            return
-
-        chunks = []
-        metadatas = []
-        ids = []
-
-        for f in files:
-            text = f.read_text(encoding="utf-8")
-            file_chunks = self._chunk_text(text)
-
-            for i, c in enumerate(file_chunks):
-                chunks.append(c)
-                metadatas.append({
-                    "source": f.name
-                })
-                ids.append(f"{f.name}_{i}")
-
-        embeddings = self.embedder.encode(chunks).tolist()
-
-        self.collection.add(
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids
-        )
-
-        self._index_built = True
-        print(f"Indexed {len(chunks)} chunks from {len(files)} files")
-
-    # -----------------------
-    # RETRIEVE
-    # -----------------------
-    def retrieve(self, query: str) -> List[Dict]:
-
-        q_emb = self.embedder.encode([query]).tolist()
+        q_emb = self.embedder.encode(query).tolist()
 
         results = self.collection.query(
-            query_embeddings=q_emb,
-            n_results=RETRIEVE_K
+            query_embeddings=[q_emb],
+            n_results=k
         )
 
-        docs = results["documents"][0]
-        metas = results["metadatas"][0]
+        docs = results.get("documents", [[]])[0]
 
-        pairs = [(query, d) for d in docs]
-        scores = self.reranker.predict(pairs)
+        # IMPORTANT: REMOVE FULL FILE BLEEDING
+        cleaned = []
+        for d in docs:
+            if not d:
+                continue
+            d = d.strip()
 
-        ranked = sorted(
-            zip(docs, metas, scores),
-            key=lambda x: x[2],
-            reverse=True
-        )
+            # only keep real chunks
+            if 30 < len(d) < 800:
+                cleaned.append(d)
 
-        top = ranked[:MAX_CONTEXT_CHUNKS]
-
-        return [
-            {
-                "text": d,
-                "source": m["source"],
-                "score": float(s)
-            }
-            for d, m, s in top
-        ]
+        return "\n\n".join(cleaned)
 
     # -----------------------
-    # GENERATE
+    # SOURCES
     # -----------------------
-    def generate_answer(self, query: str):
+    def get_sources(self, query, k=5):
 
-        docs = self.retrieve(query)
+        q_emb = self.embedder.encode(query).tolist()
 
-        context = "\n\n".join(
-            f"[{d['source']}]\n{d['text']}"
-            for d in docs
+        results = self.collection.query(
+            query_embeddings=[q_emb],
+            n_results=k
         )
+
+        metas = results.get("metadatas", [[]])[0]
+
+        return list({m.get("source", "unknown") for m in metas})
+
+    # -----------------------
+    # GENERATE ANSWER (STRICT MODE FIX)
+    # -----------------------
+    def generate_answer(self, query):
+
+        context = self.retrieve_context(query)
+
+        if not context:
+            return (
+                "Not found in documents.",
+                self.get_sources(query)
+            )
 
         prompt = f"""
-You are AI Assistant Pro Mode.
+You are Eddie, a strict document-only assistant.
 
-Use ONLY the context below.
+RULES:
+- Answer ONLY using the context
+- Do NOT copy full documents
+- Give short precise answers
+- If not found say: Not found in documents
 
-Context:
+CONTEXT:
 {context}
 
-Question:
+QUESTION:
 {query}
 
-Answer:
-""".strip()
+ANSWER:
+"""
 
-        answer = self._call_llm(prompt)
+        if self.llm is None:
+            return (
+                "LLM not connected. Run: ollama serve",
+                self.get_sources(query)
+            )
 
-        sources = list({d["source"] for d in docs})
+        answer = self.llm.invoke(prompt)
 
-        return answer, sources
+        return answer, self.get_sources(query)
