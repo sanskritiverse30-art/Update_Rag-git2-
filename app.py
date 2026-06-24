@@ -6,7 +6,7 @@ def main():
     assistant = RAGAssistant()
     store = FeedbackStore()
 
-    print("\n🧠 Custom AI Knowledge Assistant (PRO MODE + RERANKING)")
+    print("\n AI Assistant Pro Mode")
     print("Type 'exit' | 'stats' | 'export'\n")
 
     print("Indexing documents...")
@@ -19,17 +19,12 @@ def main():
         if query.lower() in {"exit", "quit"}:
             break
 
-        # STATS
         if query.lower() == "stats":
-            stats = store.get_stats()
-            print("\n📊 REPORT")
-            print(stats)
+            print(store.get_stats())
             continue
 
-        # EXPORT
         if query.lower() == "export":
-            file_path = store.export_csv()
-            print(f"\n📄 Exported: {file_path}\n")
+            print(store.export_csv())
             continue
 
         try:
@@ -37,18 +32,16 @@ def main():
 
             answer, sources = assistant.generate_answer(query)
 
-            print("\nAnswer:")
-            print(answer)
+            print("\nAnswer:\n", answer)
 
             print("\nSources:")
             for s in sources:
                 print("-", s)
 
-            fb = input("\nWas this helpful? (y/n): ").strip().lower()
-
+            fb = input("\nWas this helpful? (y/n): ")
             store.log(query, answer, sources, fb)
 
-            print("\n" + "-" * 50 + "\n")
+            print("\n" + "-" * 40 + "\n")
 
         except Exception as e:
             print("Error:", e)

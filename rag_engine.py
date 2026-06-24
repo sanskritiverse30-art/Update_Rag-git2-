@@ -1,7 +1,6 @@
-from pathlib import Path
 from typing import List, Dict
+import requests
 
-import numpy as np
 import chromadb
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
@@ -11,66 +10,92 @@ from config import *
 class RAGAssistant:
     def __init__(self):
         # -----------------------
-        # Models
+        # MODELS
         # -----------------------
         self.embedder = SentenceTransformer(EMBEDDING_MODEL)
         self.reranker = CrossEncoder(RERANK_MODEL)
 
         # -----------------------
-        # Vector DB
+        # VECTOR DB
         # -----------------------
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
         self.collection = self.client.get_or_create_collection(name="docs")
 
         self._index_built = False
 
-    # ----------------------------
-    # BETTER CHUNKING (sentence-aware + overlap)
-    # ----------------------------
+    # -----------------------
+    # OLLAMA CALL
+    # -----------------------
+    def _call_llm(self, prompt: str):
+        response = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False
+            }
+        )
+        return response.json()["response"]
+
+    # -----------------------
+    # CHUNKING
+    # -----------------------
     def _chunk_text(self, text: str) -> List[str]:
         sentences = text.split(". ")
         chunks = []
-
         chunk = ""
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
+
+        for s in sentences:
+            s = s.strip()
+            if not s:
                 continue
 
-            if len(chunk) + len(sentence) < CHUNK_SIZE:
-                chunk += sentence + ". "
+            if len(chunk) + len(s) < CHUNK_SIZE:
+                chunk += s + ". "
             else:
                 chunks.append(chunk.strip())
-
-                # overlap handling
-                overlap_part = " ".join(chunk.split()[-CHUNK_OVERLAP:])
-                chunk = overlap_part + " " + sentence + ". "
+                overlap = " ".join(chunk.split()[-CHUNK_OVERLAP:])
+                chunk = overlap + " " + s + ". "
 
         if chunk:
             chunks.append(chunk.strip())
 
         return chunks
 
-    # ----------------------------
-    # INDEXING
-    # ----------------------------
+    # -----------------------
+    # INDEX (FIXED FOR STREAMLIT)
+    # -----------------------
     def build_index(self):
+        # Prevent repeated indexing in Streamlit reruns
         if self._index_built:
+            return
+
+        # If DB already has data → skip rebuilding
+        if self.collection.count() > 0:
+            self._index_built = True
+            print("Using existing ChromaDB index")
             return
 
         files = list(DATA_DIR.glob("*.txt"))
 
-        chunks, metadatas, ids = [], [], []
+        if len(files) == 0:
+            print("No documents found in data/ folder")
+            return
 
-        for file in files:
-            text = file.read_text(encoding="utf-8")
+        chunks = []
+        metadatas = []
+        ids = []
 
+        for f in files:
+            text = f.read_text(encoding="utf-8")
             file_chunks = self._chunk_text(text)
 
-            for i, chunk in enumerate(file_chunks):
-                chunks.append(chunk)
-                metadatas.append({"source": file.name})
-                ids.append(f"{file.name}_{i}")
+            for i, c in enumerate(file_chunks):
+                chunks.append(c)
+                metadatas.append({
+                    "source": f.name
+                })
+                ids.append(f"{f.name}_{i}")
 
         embeddings = self.embedder.encode(chunks).tolist()
 
@@ -82,11 +107,11 @@ class RAGAssistant:
         )
 
         self._index_built = True
-        print(f"Indexed {len(chunks)} chunks from {len(files)} files.\n")
+        print(f"Indexed {len(chunks)} chunks from {len(files)} files")
 
-    # ----------------------------
-    # RETRIEVAL + RERANKING + FILTERING
-    # ----------------------------
+    # -----------------------
+    # RETRIEVE
+    # -----------------------
     def retrieve(self, query: str) -> List[Dict]:
 
         q_emb = self.embedder.encode([query]).tolist()
@@ -99,10 +124,7 @@ class RAGAssistant:
         docs = results["documents"][0]
         metas = results["metadatas"][0]
 
-        # -----------------------
-        # RERANKING STEP
-        # -----------------------
-        pairs = [(query, doc) for doc in docs]
+        pairs = [(query, d) for d in docs]
         scores = self.reranker.predict(pairs)
 
         ranked = sorted(
@@ -111,55 +133,33 @@ class RAGAssistant:
             reverse=True
         )
 
-        # -----------------------
-        # STRICT FILTERING
-        # -----------------------
-        filtered = []
+        top = ranked[:MAX_CONTEXT_CHUNKS]
 
-        for doc, meta, score in ranked:
-            if score >= RERANK_THRESHOLD:
-                filtered.append({
-                    "text": doc,
-                    "source": meta["source"],
-                    "score": float(score)
-                })
+        return [
+            {
+                "text": d,
+                "source": m["source"],
+                "score": float(s)
+            }
+            for d, m, s in top
+        ]
 
-            if len(filtered) >= MAX_CONTEXT_CHUNKS:
-                break
-
-        # fallback safety
-        if len(filtered) < MIN_CONTEXT_CHUNKS:
-            filtered = [
-                {
-                    "text": doc,
-                    "source": meta["source"],
-                    "score": float(score)
-                }
-                for doc, meta, score in ranked[:MIN_CONTEXT_CHUNKS]
-            ]
-
-        return filtered
-
-    # ----------------------------
-    # GENERATION
-    # ----------------------------
+    # -----------------------
+    # GENERATE
+    # -----------------------
     def generate_answer(self, query: str):
 
-        retrieved_docs = self.retrieve(query)
+        docs = self.retrieve(query)
 
         context = "\n\n".join(
-            f"[{r['source']} | score={r['score']:.2f}]\n{r['text']}"
-            for r in retrieved_docs
+            f"[{d['source']}]\n{d['text']}"
+            for d in docs
         )
 
         prompt = f"""
-You are a helpful HR assistant.
+You are AI Assistant Pro Mode.
 
-Answer ONLY using the context below.
-If the answer is not present, say:
-"I could not find that information in the provided documents."
-
-Be concise and accurate.
+Use ONLY the context below.
 
 Context:
 {context}
@@ -170,18 +170,8 @@ Question:
 Answer:
 """.strip()
 
-        # HuggingFace pipeline is assumed already initialized in your app layer
-        output = self.llm(
-            prompt,
-            max_new_tokens=MAX_NEW_TOKENS,
-            temperature=TEMPERATURE,
-            do_sample=True
-        )[0]["generated_text"]
+        answer = self._call_llm(prompt)
 
-        answer = output.split("Answer:")[-1].strip()
-
-        sources = sorted(set(
-            r["source"] for r in retrieved_docs
-        ))
+        sources = list({d["source"] for d in docs})
 
         return answer, sources

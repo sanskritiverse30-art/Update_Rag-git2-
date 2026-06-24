@@ -1,109 +1,150 @@
-# RAG Knowledge Assistant (with Feedback + Reporting)
+# Eddie — AI RAG Knowledge Assistant
 
-A simple **Retrieval-Augmented Generation (RAG)** 
-chatbot that answers questions based only on local documents. It also includes 
-**feedback tracking, CSV export, and basic analytics**.
+Eddie is a **Retrieval-Augmented Generation (RAG) AI assistant** built with Streamlit that answers questions strictly from your local documents. It uses embeddings + vector search + LLM generation to provide grounded, document-based answers.
 
 ---
 
 ## What this project does
 
-This chatbot:
-- Reads `.txt` documents from a local `data/` folder
-- Splits them into chunks (better retrieval)
-- Stores embeddings in a vector database (ChromaDB)
-- Retrieves relevant chunks based on user questions
-- Uses an LLM (Ollama / local model or HF pipeline) to generate answers
-- Restricts answers strictly to document context only
-
-It also:
-- Collects user feedback (Helpful / Not Helpful)
-- Tracks usage statistics
-- Allows exporting a full report as CSV
-- Supports reranking + improved retrieval (latest version)
+Eddie allows you to:
+- Ask questions in natural language
+- Retrieve relevant context from your `.txt` documents
+- Generate AI answers based ONLY on retrieved content
+- View sources used for every answer
+- Give feedback (👍 / 👎) on responses
+- Track usage statistics
+- Export chat history as a PDF
 
 ---
 
-##  Key Features
+## Core Features
 
-###  Document-based QA
-Answers ONLY from uploaded documents. If info is missing, it says so.
-
-###  RAG Pipeline
-- Chunking documents
-- Embedding (SentenceTransformers)
-- Vector search (ChromaDB)
-- Optional reranking for better accuracy
-
-###  Analytics System
-- Total questions asked
-- Helpful vs not helpful responses
-- Success rate tracking
-- `/stats` command inside CLI
-
-###  Feedback System
-After every answer:
-- User can rate response (y/n)
-- Feedback is stored for analysis
-
-###  Export System
-- Export all interactions into a `report.csv`
-- Useful for professors / evaluation / demo
+### 📄 Document-based Q&A (RAG System)
+- Loads `.txt` files from `data/`
+- Splits documents into chunks
+- Stores embeddings in **ChromaDB**
+- Retrieves most relevant chunks for each query
+- Uses LLM to generate grounded answers
 
 ---
 
-## Project Structure
+###  AI Assistant (Eddie)
+- Answers only using your uploaded documents
+- Refuses to hallucinate outside context
+- Shows source documents used in response
+
+---
+
+### Feedback & Analytics
+- 👍 / 👎 feedback system after each answer
+- Tracks:
+  - Total queries
+  - Helpfulness rate
+- Stores feedback in CSV (`report.csv`)
+
+---
+
+###  Export Feature
+- Export chat history as PDF
+- Useful for:
+  - demos
+  - grading
+  - project submission
+
+---
+
+###  Streamlit Chat UI
+- ChatGPT-style interface
+- Real-time responses
+- Session-based chat history (single-session mode for simplicity)
+
+---
+
+## 🏗️ Project Structure
 rag-knowledge-assistant/
 │
-├── app.py # Main CLI chatbot loop
+├── dashboard.py # Streamlit UI (main app)
 ├── rag_engine.py # RAG pipeline (retrieval + generation)
-├── feedback_store.py # Stores logs + stats + CSV export
-├── config.py # Central configuration (models, paths, params)
-
+├── feedback_store.py # Feedback tracking + stats
+├── chat_storage.py # (optional / removed in latest version)
+├── config.py # Configuration settings
+│
 ├── data/ # Your documents (.txt files)
 ├── chroma_db/ # Vector database storage
-└── report.csv # Generated usage report
+├── report.csv # Feedback + usage logs
+└── README.md
 
-## How to Run
+---
 
-### 1. Install dependencies
+## Installation
+
+### 1. Clone the project
 ```bash
+git clone <Updated_Rag-git2->
+cd rag-knowledge-assistant
+
+2. Create environment (recommended)
+conda create -n rag python=3.10
+conda activate rag
+3. Install dependencies
 pip install -r requirements.txt
-2. Start Ollama (if using local model)
-ollama serve
-3. Pull model (first time only)
-ollama pull llama3.2
-4. Run app
-python app.py
- Commands in Chat
+4. Run Streamlit app
+streamlit run dashboard.py
 
-#Inside the chatbot:
+# How RAG Works
+User asks a question
+Question is converted into embeddings
+ChromaDB retrieves top matching document chunks
+Retrieved context is passed to LLM
+LLM generates answer using ONLY that context
+Sources are displayed
+Feedback is stored
 
-Ask any question → gets answer from documents
-stats → view usage report
-export → download CSV report
-exit → quit app
- Example Output
+
+## Example Output
+
+Question:
+
+What is the remote work policy?
+
 Answer:
+
 Remote work is allowed after 90 days of employment...
 
 Sources:
-- remote_work_policy.txt
-- employee_handbook.txt
 
-# Was this helpful? (y/n):
- How RAG Works Here
-User asks a question
-Question is embedded into vector space
-Top matching document chunks are retrieved
-(Optional) reranker improves relevance
-LLM generates final answer using ONLY context
-System logs feedback + sources
+employee_handbook.txt
+remote_work_policy.txt
+
+# Stats Tracked
+Total queries
+Helpful responses
+Success rate (%)
+
+Displayed in sidebar inside the app.
+
+# Tech Stack
+Python
+Streamlit
+LangChain-style RAG pipeline
+ChromaDB (vector database)
+SentenceTransformers (embeddings)
+ReportLab (PDF export)
+
+# Key Design Decisions
+Strict document-only answering (no hallucinations)
+Lightweight local vector DB (Chroma)
+Streamlit for fast UI development
+Simple feedback loop for evaluation
+Single-session mode for simplicity and stability
 
 
- # Improvements Added
-Better chunking strategy
-Strict document-only answering
-Reranking support (improved accuracy)
-Feedback tracking system
-CSV export for evaluation
+# Future Improvements
+Add a feature, that stores old chats, and a user can rename or delete chats (old chats) but it makes the interface complex to use. 
+Like it's not smooth, adding that feature makes it complex. 
+
+
+# Notes
+Ensure data/ folder contains .txt files before running
+ChromaDB index is auto-created on first run
+Feedback is stored in report.csv
