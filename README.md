@@ -78,6 +78,19 @@ cd rag-knowledge-assistant
 
 ### 2. Install dependencies
 
+Create a virtual environment (recommended)
+
+python -m venv venv
+
+Activate it:
+
+macOS / Linux
+
+source venv/bin/activate
+
+Windows
+venv\Scripts\activate
+
 ```bash
 pip install -r requirements.txt
 ```
