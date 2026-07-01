@@ -1,10 +1,29 @@
-
+# Python
 __pycache__/
+*.py[cod]
+*.pyo
+
+# Chroma database
 chroma_db/
+
+# Pytest
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# macOS
 .DS_Store
-*.pyc
+
+# Virtual environments
+venv/
+.venv/
+.env
+
+# Generated files
 report.csv
 feedback_logs.jsonl
 feedback.jsonl
 
-
+# Logs
+*.log.DS_Store
