@@ -107,7 +107,7 @@ Install:
 ## Clone the Repository
 
 ```bash
-git clone git clone <repository-url> (Sanskriti check this after pushing!! Update this)
+git clone git clone <https://github.com/sanskritiverse30-art/Update_Rag-git2-> 
 cd rag-knowledge-assistant-project1c
 ```
 
